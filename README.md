@@ -8,4 +8,4 @@ all original content in this project is dedicated to the public domain under the
 
 ### todo
 
-- [ ] data persistence (reimplement AOF)
+- [x] data persistence (reimplement AOF)
