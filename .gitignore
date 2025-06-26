@@ -28,6 +28,8 @@ go.work.sum
 .env
 
 .direnv
+app
+*.aof
 # Editor/IDE
 # .idea/
 # .vscode/

@@ -1,64 +1,74 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"strings"
 )
 
+var aof *Aof
+var flagAOF = flag.Bool("aof", false, "enable data persistence")
+var flagPort = flag.String("port", "6379", "port to listen to")
+
 func main() {
-	fmt.Println("starting server...")
+	flag.Parse()
+
+	if *flagAOF {
+		a, err := NewAof("data.aof")
+		if err != nil {
+			panic(err)
+		}
+		aof = a
+		defer aof.Close()
+	}
 
 	// create server instance
-	server, err := net.Listen("tcp", ":6379")
+	srv, err := net.Listen("tcp", fmt.Sprintf(":%v", *flagPort))
 	if err != nil {
-		fmt.Println(err)
-		return
+		panic(err)
 	}
 
-	fmt.Println("started server in port 6379")
+	fmt.Println("started server at port", *flagPort)
 
-	// listen
-	conn, err := server.Accept()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// ok ig
-	defer conn.Close()
+	defer srv.Close()
 
 	for {
-		resp := NewResp(conn)
-		value, err := resp.Read()
+		// listen
+		conn, err := srv.Accept()
 		if err != nil {
-			fmt.Println(err)
+			continue
+		}
+		go handle(conn)
+	}
+}
+
+func handle(c net.Conn) {
+	defer c.Close()
+
+	for {
+		r := NewResp(c)
+		v, err := r.Read()
+		if err != nil {
 			return
 		}
-
-		if value.typ != "array" {
-			fmt.Println("expected array")
+		if v.typ != "array" || len(v.array) == 0 {
 			continue
 		}
 
-		if len(value.array) == 0 {
-			fmt.Println("expected non-empty array")
-			continue
-		}
-
-		command := strings.ToUpper(value.array[0].bulk)
-		args := value.array[1:]
-
-		writer := NewWriter(conn)
-
-		handler, ok := Handlers[command]
+		cmd := strings.ToUpper(v.array[0].bulk)
+		args := v.array[1:]
+		w := NewWriter(c)
+		h, ok := Handlers[cmd]
 		if !ok {
-			fmt.Println("invalid/unknown command: ", command)
-			writer.Write(Value{typ: "string", str: ""})
+			w.Write(Value{typ: "error", str: "unknown command"})
 			continue
 		}
 
-		result := handler(args)
-		writer.Write(result)
+		if aof != nil && (cmd == "SET" || cmd == "HSET") {
+			aof.Write(v)
+		}
+
+		w.Write(h(args))
 	}
 }
